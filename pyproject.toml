@@ -1,0 +1,22 @@
+# pyproject.toml
+
+[build-system]
+requires      = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xvarmap"
+version = "0.0.1"
+description = "Tools to use API metadata to build consistent variable id's for time series analysis"
+readme = "README.md"
+authors = [{ name = "Kevin Phang", email = "kevin.sl.phang@gmail.com" }]
+license = { file = "LICENSE" }
+dependencies = [
+    "pandas",
+    "numpy",
+    "IPython"
+]
+requires-python = ">=3.11"
+
+[project.urls]
+Homepage = "https://github.com/kphang/xvarmap"
