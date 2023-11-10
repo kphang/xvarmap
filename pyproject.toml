@@ -14,7 +14,8 @@ license = { file = "LICENSE" }
 dependencies = [
     "pandas",
     "numpy",
-    "IPython"
+    "IPython",
+    "treelib"
 ]
 requires-python = ">=3.11"
 
