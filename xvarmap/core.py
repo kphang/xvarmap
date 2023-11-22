@@ -5,17 +5,35 @@ import numpy as np
 import re
 import difflib
 import logging
-from collections import namedtuple, OrderedDict
-from itertools import zip_longest
+import functools 
 
-from pandas import DataFrame, Series
-from typing import Literal, Any, Callable, NamedTuple, overload
+from collections import (
+    namedtuple, 
+    OrderedDict
+)
+
+from pandas import (
+    DataFrame, 
+    Series
+)
+from typing import (
+    Optional,
+    Literal, 
+    Any, 
+    Callable, 
+    NamedTuple, 
+    TypeAlias, 
+    NewType,
+    overload
+)
 from IPython.display import display
 from copy import copy
 from csv import Sniffer
 
 # TODO: create custom exceptions
     # on trying to manually adjust dataframes or objects rather than using provided functions
+# TODO: setup debug logging
+    # all operations (including cascades) should have logs that can be enabled
 
 class VarMap():
             
@@ -25,11 +43,18 @@ class VarMap():
                  varid:str, # TODO: allow passing index
                  desc:str, 
                  *,
-                 values:str|DataFrame|None=None, # if multiple values for variable use dataframe©
+                 values:Optional[str|DataFrame]=None,
+                    # str is colname
+                    # DataFrame to attach multiple values
                  hiermethod: Literal["auto","delimited","leading","userdefined"]="auto",
-                 hiercol:str|None=None,
-                 pat:str|None=None,
-                 orderby:str|None=None):
+                 hiercol:Optional[str]=None,
+                 pat:Optional[str]=None,
+                 orderby:Optional[str]=None):
+
+        
+        # need to construct the metadata df from the valuesdf
+        # process df to isolate metadata from values
+            # detect if df has values and multiple of varid (indicates its a values dataframe)
 
         # ? what if there are multiple columns that indicate hierarchy in an already parsed form?
             # expect user to pre-process?        
@@ -37,9 +62,7 @@ class VarMap():
             # at the moment it's stored but inert
                                                     
         self._vintage = vintage        
-        #self._varid = varid # ? needed ongoing? used in auto find_hierarchy
-        #self._desc = desc # ? needed ongoing? used in auto find_hierarchy
-            # if we rename first then it's stable                    
+        
         self._df = df        
         self._df = self._df.rename(columns={varid:"id",desc:"desc"})  # ? order step?
         self.find_hierarchy(hiermethod,hiercol=hiercol,pat=pat,inplace=True)
@@ -51,6 +74,13 @@ class VarMap():
         # index by row and id
         #df.reset_index().set_index(varid,append=True)[desc]        
 
+    # TODO: implement __getitem__ for rows
+
+    def _view(self,mode:Literal[""]): # TODO
+        # different representations of the dataframe based on functional column groupings
+            # meta - level, hierarchy
+            
+        pass
 
     @property
     def df(self):
@@ -114,23 +144,23 @@ class VarMap():
     def find_hierarchy(self, 
                         hiermethod: Literal["auto","delimited","leading","userdefined"],                        
                         *,
-                        hiercol:str|None=..., 
-                        pat:str|Callable[[str],int]|None=...,                          
+                        hiercol:Optional[str]=..., 
+                        pat:Optional[str|Callable[[str],int]]=...,                          
                         inplace:Literal[False],
                         strict:bool=True) -> VarMap: ...                        
     @overload
     def find_hierarchy(self, 
                         hiermethod: Literal["auto","delimited","leading","userdefined"],                           
                         *,
-                        hiercol:str|None=..., 
-                        pat:str|Callable[[str],int]|None=...,                          
+                        hiercol:Optional[str]=..., 
+                        pat:Optional[str|Callable[[str],int]]=...,                          
                         inplace:Literal[True],
                         strict:bool=True) -> None: ...                            
     def find_hierarchy(self, 
                         hiermethod: Literal["auto","delimited","leading","userdefined"],                           
                         *,
-                        hiercol:str|None=None, 
-                        pat:str|Callable[[str],int]|None=None,                          
+                        hiercol:Optional[str]=None, 
+                        pat:Optional[str|Callable[[str],int]]=None,
                         inplace:bool=False,
                         strict:bool=True) -> VarMap|None:
         """Used to detect nesting within the data based on a pattern in the columns and return two additional DataFrame
@@ -162,7 +192,8 @@ class VarMap():
         Returns:
             VarMap|None
         """            
-        # TODO: json inference method from nesting        
+        # TODO: json inference method from nesting
+        # TODO: consider refactoring to private top-level functions or inner functions
         
         if hiermethod!="auto":
             if hiercol is None or pat is None:
@@ -213,7 +244,11 @@ class VarMap():
             
             # validation            
             # look for levels not starting at level 1, that have indicator anomalies anomalies, or level jumps            
-            if (lvls.iloc[0]!=1) or (lvls.ne(lvl_indic.div(reducer).fillna(0,limit=1)+1).any()) or ((lvl_diffs>1).any()):
+            if (
+                (lvls.iloc[0]!=1) or 
+                (lvls.ne(lvl_indic.div(reducer).fillna(0,limit=1)+1).any()) or 
+                ((lvl_diffs>1).any())
+                ):
                 if hiermethod!="auto": # only non-auto cases provide feedback
                     if strict:
                         # TODO: provide specific problem and row where error occurs
@@ -251,13 +286,38 @@ class VarMap():
             return vm       
     
 
+
+# Option 1: dicts to provide mappings, use valid types
+    # we have to use an immutable data structure
+    # RowList: TypeAlias = tuple[int,...]
+    # Range = NewType("Range",tuple[int,int])
+    
+# Option 2: dicts to provide mappings, interpreted strings
+    # need to build a custom class that interprets
+    # list - "1,2,3"
+    # range - "[int:int]"
+    # map - { str:str }
+    
+# Option 3: separate from and to rows in functions
+    # list - list[int]
+    # range - tuple[int,int] or Range = NewType("Range",tuple[int,int])
+    # map:
+        # from: int|list[int]|tuple[int,int]
+        # to: int|list[int]|tuple[int,int]
+    
+
 class XVarMap():
     
-    def __init__(self, varmaps:list[VarMap],refframe):
+    # before any change, should the impact be tested and confirmed interactively before continuing?
+    # ? reference frame? reference vintage? frame of reference/for?
+    
+    def __init__(self, 
+                 varmaps:VarMap|list[VarMap],
+                 refframe:str, # TODO: naming unclear, should be the vintage
+                 stitch:bool=True):
         
-        self._refframe = refframe        
-        self._varmaps = varmaps # store as dict with the vintage as key?
-        
+        self._refframe = refframe                
+        self._vms = {vm.vintage: vm for vm in varmaps}        
         
         
         # join varmaps on id and index by refframe's row
@@ -269,11 +329,32 @@ class XVarMap():
             
         # maybe streamlit can help?
             
-        # each cell stores the id, description, and depth
+        # each cell stores the id, description, and depth                
         
-        # TODO: vintages list property
+        # store original outer join version for comparison with end result?
         
         pass
+    
+    # TODO: implement __getitem__ for vintage?
+    
+    def _view(self,mode:Literal[""]): # TODO
+        # different representations of the dataframe based on functional column groupings
+            # metrics
+            
+        pass
+    
+    
+    def add_vm(self,
+               vm:VarMap|list[VarMap],
+               stitch:bool=True
+                ) -> None:
+
+        # TODO: when changing vintage of VarMap, need to check that it doesn't lead to multiple VarMaps with the same vintage being in an XVarMap
+        # create a set_vintages property that takes a mapping of old vintage names to new vintages with the check for no duplicates before updating
+        # only apply stitch to new varmap(s)
+
+        pass
+    
     
     @property
     def varmaps(self):                
@@ -281,6 +362,25 @@ class XVarMap():
             Use XVarMap functions to access or modify its VarMap objects rather than doing so directly, 
             or rebuild instance"
             """)        
+    
+    @property
+    def vintages(self):
+        return [self._vms.keys()].sort()
+    
+    # TODO: view vintage function
+    
+    def set_refframe(self,vintage:str):
+        """Uses the provided VarMap id key to designate that VarMap's variables as the frame of reference"""
+        # on changing refframe need to resort by row number of the new frame of reference to privilege the refframe's ordering
+        pass
+    
+    def _refframe_dir(self,vintage:str):
+        # find whether vintage is before or after refframe
+        # and/or give all cascaded impact frames
+        pass
+    
+    
+    # TODO: property summarizing issues
     
     # @classmethod
     # def from_csv(cls,path:str|list[str],**kwargs) -> None:
@@ -292,49 +392,38 @@ class XVarMap():
         
     #     pass
         
-    def save(self,path:str):
+    # def save(self,path:str):
         
-        pass
-
-    # TODO: prevent multiple VarMap's with the same vintage from being added
-        # attach to method that adds VarMaps 
-    # TODO: when changing vintage of VarMap, need to check that it doesn't lead to multiple VarMaps with the same vintage being in an XVarMap
-        # create a set_vintages property that takes a mapping of old vintage names to new vintages with the check for no duplicates before updating
-            # ! but the list is accessible
-                # make varmaps a property to return the individual varmaps
-                # then after accessing them run the validation code?
+    #     pass        
+    
+    # @staticmethod
+    # def load(path:str) -> XVarMap:
+        
+    #     pass
         
     
-    @staticmethod
-    def load(path:str) -> 'XVarMap':
-        
-        pass
-        
-    def set_refframe(self,vintage:str):
-        """Uses the provided VarMap id key to designate that VarMap's variables as the frame of reference"""
-        # on changing refframe need to resort by row number of the new frame of reference to privilege the refframe's ordering
-        pass
-    
-    def refframe_dir(self,vintage:str):
-        # find whether vintage is before or after refframe
-        # and/or give all cascaded impact frames
-        pass
     
     def validate_ids(self):
-        # check for uniqueness of 
+        # check for uniqueness of varids (or vintage-varids)
         pass
-    
-    def validate_transform(self,vintage:str) -> None:
         
-        if vintage == self._refframe:
-            raise ValueError("""
-                             'vintage' cannot be the frame of reference. This transform is done relative to the frame 
-                             of reference
-                             """)
     
     def distance(self,vintage:str):
         # edit distance for vintage's description vs refframe's description
         # all row distances vs avg vs count
+        
+        # distance metrics
+            # cell diff pct
+            # avg cell dif pct
+            # total diff pct
+            # define a critical error threshold, look for a string of critical errors
+            # chain of matches previous
+            # chain of errors after line
+            # rolling diff pct?
+            
+        
+        # frame level distance
+            # convert desc to string and use diff lib to detect insertions and removals        
         
         pass
     
@@ -348,10 +437,12 @@ class XVarMap():
         # change in distance and hierarchy errors
         
         pass
+            
     
     def find_break(self):
         # identify row where subsequent errors increase significantly (how to define?)
         # ? need a way to annotate rows as accepted and store notes to skip so we can find the next break?
+        # desc series to string and use difflib?
         pass            
     
     def show_table(mode:Literal["values"],post_transform:bool=False):
@@ -359,12 +450,6 @@ class XVarMap():
         
         pass
             
-    def validateop(self):
-        # test if a transformation will collide with an existing mapping and error out if so
-        
-        # test if operation targets the frame of reference
-        
-        pass
     
     def apply_notes(self):
         
@@ -378,53 +463,196 @@ class XVarMap():
         
         pass
     
-    def cascade(self, mode:Literal["relative","subset","upstream","downstream"]="relative", subset:list[Any]|None=None):
+    def _validateop(self,vintage:str):        
+                
+        if vintage == self._refframe:
+            raise ValueError("""
+                             'vintage' cannot be the frame of reference. This transform is done relative to the frame 
+                             of reference
+                             """)
+        
+        pass
+    
+    
+    def _setwarnings(mode:Literal[""]):
+        # warning modes get called from transaction
+            # decorator?
+            
+        # no warning
+        # warning message on sub-optimal change
+        # confirmation required processing sub-optimal change
+        # hard stop on detected sub-optimal change
+    
+        # combine validate with warnings?
+            # validate, warning mode, function?
+        
+        # transactions by default only need confirmation if it generates a suboptimal result or hierarchy problem
+            # shift will always cause hierarchy problems? need to be more precise on what conditions
+        
+        pass
+    
+    
+    def cascade(self, 
+                func:Callable, 
+                mode:Literal["relative","subset","upstream","downstream"]="relative", 
+                subset:Optional[list[Any]]=None):
         
         if mode=="subset" and not subset:             
             raise TypeError("A list of vintages must be provided")
+        
+        @functools.wraps(func)    
+        def wrapper(*args,**kwargs):
             
+            pass
         
         # ? if upstream/downstream overlaps _refframe, should it continue past?
         # if row # matches but not the variable id then need to confirm if cascade
+        # does it ever make sense to cascade upstream if refframe is left? probably not 
+        # cascade based on row, varid, or optional?
+            # probably row - varid is only useful in the beginning if it's aligned but if work has been done then
+            # it's likely intentional disruption
+        # decompose concept into direction versus position?
+        # 
+        
         
         pass
         
-    def autoadjust(self):
-        # smart correction
-        # join then run the auto-correct function if bool
+    
+    # ? need to store pre and post transactions in case of undo?
+        # or just not push through until confirmed?
+    
+    def _validaterows(
+                from_row:int|list[int]|range,
+                to_row:Optional[int|list[int]|range|Literal["new"]|None]=None
+                ):
+        
+        # length of rows on both ends must be valid
+        # check that rows exist (or new)
+        # need to check for no duplicate row values in from side to avoid confusion
+            # e.g. can't have [1,1,2]->[3,4,5] but can have [1,2,3]->[2,3,4]
+        # ? return as a mapping?
+        pass
+    
+    def shift(self,
+               vintage:str,
+               from_row:int,
+               offset:Optional[int]=None,               
+               *,               
+               inplace:bool=False, 
+               impact_summary:bool=True)->XVarMap|None:
+        """Modifies the XVarMap by shifting a VarMap's variables up or down a number of rows against 
+        the frame of reference variables. This is used to handle cases where the frame of reference has additional 
+        variables, requiring another vintage to shift down as many rows (resulting in an empty row/rows for the other 
+        vintage in the frame of reference additional variable rows).        
+        """                
+        
+        # ? interactive confirm before processing? if so then no need for inplace
+            # inplace offers a more pandas consistent experience
+            # interactive lets you know the impact before pushing a transaction through
+            # option between inplace and interactive?                        
+            
+        pass
+        
+
+    def bump(self,
+               vintage:str,
+               from_rows:int|list[int]|range,
+               to_rows:int|list[int]|range|Literal["new"],
+               *,
+               inplace:bool=False,
+               impact_summary:bool=True)->XVarMap|None:
+        
+        
+        # ? new should insert rows to the bottom of from?
+            # what if from is a list of random rows? add to the bottom of each?
+            # should there me a separate unmap op so that bump is never new?
+        
+        
+        pass
+        
+    
+    def switch(self,
+               vintage:str,
+               from_rows:int|list[int]|range,
+               to_rows:int|list[int]|range,
+               *,
+               inplace:bool=False,
+               impact_summary:bool=True)->XVarMap|None:
+        
+        """
+        Switch the variables of two rows (with the ability to handle multiple tuples of row pairs). This is used to 
+        handle cases of reordering. A list of tuple row pairs can be provided to process multiple reorderings.
+        """
+        # ? allow passing a tuple
+        # dict requires that every old mapping is given a new mapping (i.e. 1-1 between keys to values)
+        # ? is there ever a time to bump or is it always an unmap?
+        
+        
+        pass
+
+    def stitch(self,
+               vintage:str,
+               to:Literal["closest","refframe"]="closest"               
+               )-> None:                
+        """
+        
+        """
+        # stitch is the auto alignment function for one of the XVarMap's vms to the refframe
+        #use vintage 
+        # should it only operate on the varmaps already added or is it another add operation?
+            # probably only to those already added
+        
+        # doesn't it make the most sense to always join to the closest (merge_as_of)?
+            # changes are less likely than over potentially distant periods
+        # if joined based on closest, how can operations fix this 
+        
+        # is there a way to handle 
+        
+        
+        pass
+    
+    
+    
+    #@cascade
+    def xshift(self, **kwargs):
+        self.vshift(**kwargs)        
+        
+        pass
+    
+    #@cascade
+    def xbump(self,
+             vintage:str,
+             ):
+        
+        
+        pass
+    
+    #@cascade
+    def xswitch(self, **kwargs):
+        self.switch(**kwargs)
+        pass
+    
+    #@cascade
+    def xstitch(self,                
+               inplace:bool=False,
+               impact_summary:bool=True)->None:
+        # xstitch takes the vms of the XVarMapand attempts to
+        # automatically resolve any issues discovered
+        
+        
+        # the multiple varmap version of cascade that attempts to reconcile the whole xvarmap
+        
         #"""Basic outer join using variable id's."""
         # # ? Can you join any or is it always joined against the frame of reference?
         #     # maybe xstitch is to join against non-frame of reference VarMaps
+    
+    
         
         pass
     
-    
-    def shift(self,vintage:str,from_row:int|None,by_nrows:int,
-              inplace:bool=False,impact_summary:bool=True):
-        """Modifies the XVarMap by shifting a VarMap's variables up or down a number of rows against the frame of reference variables"""
-        # does it ever make sense to cascade upstream if refframe is left? probably not
-        # ? allow shifting a range of rows?
-            # ! need to handl if shift leads to overlap
-        
-        pass
-    
-    @cascade
-    def xshift(self, **kwargs):
-        self.shift(**kwargs)
-        pass
 
-    def stitch(self):
-        """Remaps variable or range of variables to another id or append rows and move to bottom (unassign)"""
-        """Customized remappings based on a provided dictionary with shifting based on a range of rows"""
-        # join variables arbitrarily
-        # used to fix things that couldn't be automatically detected that resulted in an outer join which produced unmapped rows
-        pass
     
-    @cascade
-    def xstitch(self, **kwargs):
-        self.stitch(**kwargs)
-        
-        pass
+    
     
     def build_docs(self):
         
